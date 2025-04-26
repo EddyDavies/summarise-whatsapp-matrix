@@ -1,5 +1,6 @@
 {
-    "exclude": ["./web", "./dist-web"],
+    "include": ["src/**/*", "tests/**/*"],
+    "exclude": ["./web", "./dist-web", "node_modules", "dist"],
     "compilerOptions": {
       "target": "ES2016",
       "outDir": "./dist",
@@ -7,7 +8,8 @@
       "esModuleInterop": true,
       "module": "CommonJS",
       "moduleResolution": "Node",
-      "lib": ["es2021"]
+      "lib": ["es2021"],
+      "types": ["bun-types"]
     }
   }
   

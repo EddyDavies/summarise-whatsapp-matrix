@@ -128,3 +128,23 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+pgdata/
+postgres_data/
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Docker
+docker-compose.override.yml
+
+# Temporary Files
+phase3_temp/
