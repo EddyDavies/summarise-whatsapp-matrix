@@ -2,8 +2,8 @@ import { describe, test, expect, beforeEach, mock } from "bun:test";
 import handleMessage from "../../src/messages";
 import { extractAndForwardLinks } from "../../src/linkExtractor";
 
-// Create a mock function for extractAndForwardLinks
-const mockExtractAndForwardLinks = mock(() => Promise.resolve());
+// Create a mock function for extractAndForwardLinks with proper typing
+const mockExtractAndForwardLinks = mock<typeof extractAndForwardLinks>(() => Promise.resolve());
 
 // Mock the linkExtractor module
 mock.module("../../src/linkExtractor", () => ({

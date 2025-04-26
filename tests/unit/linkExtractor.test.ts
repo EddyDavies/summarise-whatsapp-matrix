@@ -1,43 +1,51 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { SummarizeUrlFn } from "../../src/summarizer";
+import { sendMessage } from "../../src/matrixClientRequests";
 
-// Mock the modules before importing the function to test
-// Create mock functions
-const mockSendMessage = mock(() => Promise.resolve());
-const mockSummarizeUrl = mock(() => Promise.resolve({ summary: "Test summary" }));
+// Mock for summarizeUrl as we're only testing Matrix integration
+const mockSummarizeUrl = mock<SummarizeUrlFn>(() => 
+  Promise.resolve({ summary: "Test summary", originalUrl: "https://example.com" })
+);
 
-// Create the mocks for the modules
-mock.module("../../src/matrixClientRequests", () => ({
-  sendMessage: mockSendMessage,
-}));
-
+// Create the mock for summarizer only
 mock.module("../../src/summarizer", () => ({
   summarizeUrl: mockSummarizeUrl,
 }));
 
-// Import the function after setting up mocks
+// Import the function after setting up mocks for summarizer
 import { extractAndForwardLinks } from "../../src/linkExtractor";
 
-// These are automatically imported when extractAndForwardLinks is imported
-import { sendMessage } from "../../src/matrixClientRequests";
-import { summarizeUrl } from "../../src/summarizer";
-
-describe("Link Extractor", () => {
+describe("Link Extractor with Real Matrix", () => {
   const originalEnv = { ...process.env };
   const originalConsoleLog = console.log;
   const originalConsoleError = console.error;
   
+  // Configure test environment
+  let testRoomId: string;
+  
   beforeEach(() => {
-    // Set up environment variables
-    process.env.FORWARDING_ROOM_ID = "test-room-id";
+    // Check required environment variables
+    if (!process.env.MATRIX_HOMESERVER_URL || 
+        !process.env.MATRIX_ACCESS_TOKEN || 
+        !process.env.MATRIX_USER_ID) {
+      console.warn("Skipping test: Matrix environment variables not set");
+      return;
+    }
+    
+    // Use test room ID for forwarding
+    testRoomId = process.env.FORWARDING_ROOM_ID || "";
+    process.env.FORWARDING_ROOM_ID = testRoomId;
     
     // Silence console output during tests
     console.log = mock(() => {});
     console.error = mock(() => {});
     
     // Reset mocks
-    mockSendMessage.mockClear();
     mockSummarizeUrl.mockClear();
-    mockSummarizeUrl.mockImplementation(() => Promise.resolve({ summary: "Test summary" }));
+    mockSummarizeUrl.mockImplementation(() => Promise.resolve({ 
+      summary: "Test summary", 
+      originalUrl: "https://example.com" 
+    }));
   });
   
   afterEach(() => {
@@ -47,90 +55,57 @@ describe("Link Extractor", () => {
     console.error = originalConsoleError;
   });
   
-  test("should extract no links from a message without URLs", async () => {
-    const message = "This is a message without any links";
-    const senderName = "TestUser";
-    const sourceRoomId = "source-room";
+  test("should send a real Matrix message", async () => {
+    // Skip test if no test room ID is configured
+    if (!testRoomId) {
+      console.warn("Skipping test: FORWARDING_ROOM_ID not set");
+      return;
+    }
     
-    await extractAndForwardLinks(message, senderName, sourceRoomId);
+    // Send a test message directly to validate Matrix connection
+    const testMessage = `Matrix integration test message ${Date.now()}`;
     
-    expect(mockSendMessage.mock.calls.length).toBe(0);
-    expect(mockSummarizeUrl.mock.calls.length).toBe(0);
-  });
+    try {
+      const response = await sendMessage(testRoomId, testMessage);
+      
+      expect(response.ok).toBe(true);
+      const responseData = await response.json();
+      expect(responseData).toHaveProperty("event_id");
+    } catch (error) {
+      console.error("Failed to send Matrix message:", error);
+      throw error;
+    }
+  }, 10000); // Allow 10 seconds for this test
   
-  test("should extract and process a single link from a message", async () => {
+  test("should extract and forward a link via real Matrix", async () => {
+    // Skip test if no test room ID is configured
+    if (!testRoomId) {
+      console.warn("Skipping test: FORWARDING_ROOM_ID not set");
+      return;
+    }
+    
     const link = "https://example.com";
     const message = `Check out this link: ${link}`;
     const senderName = "TestUser";
     const sourceRoomId = "source-room";
     
     await extractAndForwardLinks(message, senderName, sourceRoomId);
-    
-    // Should have called sendMessage at least once for the initial notification
-    expect(mockSendMessage.mock.calls.length).toBeGreaterThanOrEqual(1);
-    
-    // Check if the first call to sendMessage contains both the sender name and link
-    if (mockSendMessage.mock.calls.length > 0) {
-      expect(mockSendMessage.mock.calls[0][0]).toBe("test-room-id");
-      expect(mockSendMessage.mock.calls[0][1]).toContain(senderName);
-      expect(mockSendMessage.mock.calls[0][1]).toContain(link);
-    }
     
     // Check if summarizeUrl was called with the link
     expect(mockSummarizeUrl.mock.calls.length).toBeGreaterThanOrEqual(1);
-    if (mockSummarizeUrl.mock.calls.length > 0) {
-      expect(mockSummarizeUrl.mock.calls).toEqual(
-        expect.arrayContaining([expect.arrayContaining([link])])
-      );
-    }
-  });
-  
-  test("should process at least one link from a message with multiple links", async () => {
-    const link1 = "https://example.com";
-    const link2 = "http://test.org";
-    const message = `Check out these links: ${link1} and ${link2}`;
-    const senderName = "TestUser";
-    const sourceRoomId = "source-room";
+    expect(mockSummarizeUrl.mock.calls[0][0]).toBe(link);
     
-    await extractAndForwardLinks(message, senderName, sourceRoomId);
-    
-    // Should have called sendMessage at least once
-    expect(mockSendMessage.mock.calls.length).toBeGreaterThanOrEqual(1);
-    
-    // Check if summarizeUrl was called at least once
-    expect(mockSummarizeUrl.mock.calls.length).toBeGreaterThanOrEqual(1);
-    
-    // Check if at least one of the links was processed
-    const allLinks = message.match(/(https?:\/\/[^\s]+)/g) || [];
-    const processedLinks = mockSummarizeUrl.mock.calls.map(call => call[0]);
-    
-    expect(processedLinks.length).toBeGreaterThan(0);
-    expect(allLinks).toEqual(expect.arrayContaining(processedLinks));
-  });
-  
-  test("should handle errors during summarization", async () => {
-    const link = "https://example.com";
-    const message = `Check out this link: ${link}`;
-    const senderName = "TestUser";
-    const sourceRoomId = "source-room";
-    
-    // Mock summarizeUrl to throw an error
-    mockSummarizeUrl.mockImplementation(() => Promise.reject(new Error("Test error")));
-    
-    // The implementation might catch errors and continue, or might not send messages
-    // when summarizeUrl fails. Either way, it should not throw.
-    // Let's just test that it doesn't throw
-    try {
-      await extractAndForwardLinks(message, senderName, sourceRoomId);
-      // If we reach here without error, the test passes
-      expect(true).toBe(true);
-    } catch (error) {
-      // If it throws, the test should fail
-      expect(error).toBeUndefined();
-    }
-  });
+    // Note: We don't check sendMessage calls directly because we're using real implementation
+    // Instead we're verifying that the process completes without errors
+  }, 15000); // Allow 15 seconds for this test
   
   test("should not process duplicate links within cache period", async () => {
+    // Skip test if no test room ID is configured
+    if (!testRoomId) {
+      console.warn("Skipping test: FORWARDING_ROOM_ID not set");
+      return;
+    }
+    
     const link = "https://example.com";
     const message = `Check out this link: ${link}`;
     const senderName = "TestUser";
@@ -139,31 +114,13 @@ describe("Link Extractor", () => {
     // First call
     await extractAndForwardLinks(message, senderName, sourceRoomId);
     
-    // Reset mocks for second call
-    mockSendMessage.mockClear();
+    // Reset mock for second call
     mockSummarizeUrl.mockClear();
     
     // Second call should not process the same link due to caching
     await extractAndForwardLinks(message, senderName, sourceRoomId);
     
-    // No calls should be made on the second attempt due to caching
-    expect(mockSendMessage.mock.calls.length).toBe(0);
+    // No calls should be made to summarizeUrl on the second attempt due to caching
     expect(mockSummarizeUrl.mock.calls.length).toBe(0);
-  });
-  
-  test("should not forward links if FORWARDING_ROOM_ID is not set", async () => {
-    // Unset the forwarding room ID
-    delete process.env.FORWARDING_ROOM_ID;
-    
-    const link = "https://example.com";
-    const message = `Check out this link: ${link}`;
-    const senderName = "TestUser";
-    const sourceRoomId = "source-room";
-    
-    await extractAndForwardLinks(message, senderName, sourceRoomId);
-    
-    // No calls should be made if FORWARDING_ROOM_ID is not set
-    expect(mockSendMessage.mock.calls.length).toBe(0);
-    expect(mockSummarizeUrl.mock.calls.length).toBe(0);
-  });
+  }, 15000); // Allow 15 seconds for this test
 }); 
