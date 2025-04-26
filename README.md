@@ -43,3 +43,20 @@ This app requires several environment variables to function properly:
 - `AI_MODEL`: Custom model name (defaults to gpt-3.5-turbo)
 
 For testing you can replace the `MONITORED_ROOM_ID` with just a normal Matrix room id, making it easier to test by yourself.
+
+## Running Tests
+
+The project includes a comprehensive test suite for unit and integration testing:
+
+```bash
+# Run all tests
+bun test
+
+# Run only unit tests
+bun test:unit
+
+# Run only integration tests
+bun test:integration
+```
+
+See [tests/README.md](tests/README.md) for more details about the test structure and coverage.
