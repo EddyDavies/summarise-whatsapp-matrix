@@ -2,8 +2,9 @@ import { v4 as uuidv4 } from "uuid";
 import { sendMessage, getEvent } from "./matrixClientRequests";
 import { PERSON_NAME, ROLE_NAME, PSEUDO_STATE_EVENT_TYPE } from "./constants";
 import { getPseudoState, setPseudoState } from "./pseudoState";
+import { extractAndForwardLinks } from "./linkExtractor";
 
-const { userId } = process.env;
+const { MATRIX_USER_ID } = process.env;
 
 const hello = async (roomId: string) => {
   sendMessage(
@@ -69,7 +70,7 @@ const handleReply = async (event) => {
 
   const prevEvent = (await getEvent(roomId, prevEventId)) as any;
 
-  if (prevEvent.sender !== userId) return;
+  if (prevEvent.sender !== MATRIX_USER_ID) return;
 
   const { expecting } = prevEvent.content.context;
 
@@ -83,20 +84,24 @@ const handleReply = async (event) => {
 };
 
 const handleMessage = async (event) => {
-  const message = event.event.content.body.toLowerCase();
+  const message = event.event.content.body;
   const { room_id } = event.event;
+  const senderName = event.sender?.name || event.event.sender;
 
-  //if message is a reply, handle reply
-  if (event.event.content["m.relates_to"]) {
-    handleReply(event);
-    return;
-  }
+  // Extract and forward any links in the message
+  await extractAndForwardLinks(message, senderName, room_id);
 
-  //if message has the tool's wake word, say hello
-  if (message.includes("example")) {
-    hello(room_id);
-    return;
-  }
+  // If message is a reply, handle reply
+  // if (event.event.content["m.relates_to"]) {
+  //   handleReply(event);
+  //   return;
+  // }
+
+  // If message has the tool's wake word, say hello
+  // if (message.toLowerCase().includes("example")) {
+  //   hello(room_id);
+  //   return;
+  // }
 };
 
 export default handleMessage;

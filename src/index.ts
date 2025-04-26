@@ -4,12 +4,26 @@ import { RoomEvent, ClientEvent } from "matrix-js-sdk";
 import handleMessage from "./messages";
 import handleReaction from "./reactions";
 
-const { homeserver, access_token, userId, whatsAppRoomId } = process.env;
+// Check for required environment variables
+const requiredEnvVars = [
+  "MATRIX_HOMESERVER_URL",
+  "MATRIX_ACCESS_TOKEN",
+  "MATRIX_USER_ID",
+  "MONITORED_ROOM_ID",
+  "FORWARDING_ROOM_ID"
+];
+
+for (const envVar of requiredEnvVars) {
+  if (!process.env[envVar]) {
+    console.error(`Error: ${envVar} is not set in environment variables`);
+    process.exit(1);
+  }
+}
 
 const client = sdk.createClient({
-  baseUrl: homeserver,
-  accessToken: access_token,
-  userId,
+  baseUrl: process.env.MATRIX_HOMESERVER_URL,
+  accessToken: process.env.MATRIX_ACCESS_TOKEN,
+  userId: process.env.MATRIX_USER_ID,
 });
 
 const start = async () => {
@@ -17,7 +31,9 @@ const start = async () => {
 
   client.once(ClientEvent.Sync, async (state, prevState, res) => {
     // state will be 'PREPARED' when the client is ready to use
-    console.log(state);
+    console.log(`Client sync state: ${state}`);
+    console.log(`Listening for messages in room: ${process.env.MONITORED_ROOM_ID}`);
+    console.log(`Forwarding links to room: ${process.env.FORWARDING_ROOM_ID}`);
   });
 
   const scriptStart = Date.now();
@@ -31,11 +47,11 @@ const start = async () => {
         return; //don't run commands for old messages
       }
 
-      if (event.event.sender === userId) {
+      if (event.event.sender === process.env.MATRIX_USER_ID) {
         return; // don't reply to messages sent by the tool
       }
 
-      if (event.event.room_id !== whatsAppRoomId) {
+      if (event.event.room_id !== process.env.MONITORED_ROOM_ID) {
         return; // don't activate unless in the active room
       }
 
