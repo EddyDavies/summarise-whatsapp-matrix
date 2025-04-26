@@ -1,22 +1,45 @@
-# Example Matrix Tool
+# WhatsApp Matrix Link Summarizer
 
-Example app for Matrix chat integration tools.
+A Matrix integration that listens to WhatsApp bridge chats, extracts links, and provides AI-generated summaries.
 
-This app keeps track of roles within a group chat. It has a keyword that the app responds to ("example") and then the rest of the interface is put together from emoji reactions and replies.
+## Features
+- Listens to Matrix rooms connected to WhatsApp
+- Extracts links from messages
+- Scrapes website content from links
+- Generates AI-powered summaries of content
+- Forwards these summaries to a designated room
 
 ## Getting started
 
-1. Clone the repo or fork the REPL
-1. Copy the `.env.example` file and rename `.env`
-1. Register on Matrix ([app.element.io](https://app.element.io) is a popular way)
-1. Copy your user id, homeserver and access token from Element into the `.env` file. Here is a screenshot: ![element user id](https://raw.githubusercontent.com/King-Mob/example-matrix-tool/refs/heads/main/element_user_id.png) ![element homserver and access token](https://raw.githubusercontent.com/King-Mob/example-matrix-tool/refs/heads/main/element_homeserver_access_token.png)
-1. Create a WhatsApp group and invite your testing buddy to it
-1. Start conversation with @whatsappbot on a homeserver (find homeserver url at in-person event) and follow the login process
-1. Open the WhatsApp chat you want to connect to through Element
-1. Copy the room id of the WhatsApp chat into the `.env` file
-1. Run the command `npm install`
-1. Run the command `npm run dev`
-1. Ask your testing buddy to send "hello" to the WhatsApp group
-1. Marvel in delight at your newfound power
+1. Clone the repo
+2. Copy the `.env.example` file and rename to `.env`
+3. Register on Matrix ([app.element.io](https://app.element.io) is a popular way)
+4. Copy your user id, homeserver and access token from Element into the `.env` file. Here is a screenshot: ![element user id](element_user_id.png) ![element homserver and access token](element_homeserver_access_token.png)
+5. Create a WhatsApp group and invite your testing buddy to it
+6. Start conversation with @whatsappbot on a homeserver (find homeserver url at in-person event) and follow the login process
+7. Open the WhatsApp chat you want to connect to through Element
+8. Copy the room id of the WhatsApp chat into the `MONITORED_ROOM_ID` field in the `.env` file
+9. Create another room for summaries and copy its ID into the `FORWARDING_ROOM_ID` field
+10. Get an API key for an AI service (like OpenAI) and add it to the `AI_API_KEY` field
+11. Run the command `bun install`
+12. Run the command `bun run dev`
+13. Ask your testing buddy to send a message with a link to the WhatsApp group
+14. Marvel in delight as the bot processes the link and posts a summary to your designated room
 
-For testing you can replace the whatsAppRoomId with just a normal Matrix room id, makes it easier to test by yourself. You will need an additional matrix user in the group with you, however this isn't too difficult to create.
+## Environment Variables
+
+This app requires several environment variables to function properly:
+
+### Required Variables:
+- `MATRIX_HOMESERVER_URL`: Your Matrix homeserver URL
+- `MATRIX_ACCESS_TOKEN`: Your Matrix access token
+- `MATRIX_USER_ID`: Your Matrix user ID
+- `MONITORED_ROOM_ID`: The room ID to monitor for links
+- `FORWARDING_ROOM_ID`: The room ID where summaries will be posted
+- `AI_API_KEY`: API key for the AI service used for summarization
+
+### Optional Variables:
+- `AI_API_URL`: Custom API endpoint (defaults to OpenAI)
+- `AI_MODEL`: Custom model name (defaults to gpt-3.5-turbo)
+
+For testing you can replace the `MONITORED_ROOM_ID` with just a normal Matrix room id, making it easier to test by yourself.

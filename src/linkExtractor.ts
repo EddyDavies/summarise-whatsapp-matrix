@@ -1,4 +1,5 @@
 import { sendMessage } from "./matrixClientRequests";
+import { summarizeUrl } from "./summarizer";
 
 // Cache to prevent duplicates within a short time frame
 const linkCache = new Set<string>();
@@ -8,7 +9,7 @@ const CACHE_EXPIRATION_MS = 60 * 60 * 1000; // 1 hour
 const URL_REGEX = /(https?:\/\/[^\s]+)/g;
 
 /**
- * Extracts links from a message and forwards them to the target room
+ * Extracts links from a message, summarizes them, and forwards them to the target room
  */
 export const extractAndForwardLinks = async (
   message: string,
@@ -41,12 +42,39 @@ export const extractAndForwardLinks = async (
       linkCache.delete(cacheKey);
     }, CACHE_EXPIRATION_MS);
 
-    // Forward the link
+    // Send initial message indicating link was found
     await sendMessage(
       forwardingRoomId,
-      `Link shared by ${senderName} in another room:\n${link}`
+      `Processing link shared by ${senderName}:\n${link}`
     );
     
-    console.log(`Forwarded link: ${link}`);
+    console.log(`Processing link: ${link}`);
+    
+    try {
+      // Get summary for the link
+      const summaryResult = await summarizeUrl(link);
+      
+      if (summaryResult) {
+        // Send the summary
+        await sendMessage(
+          forwardingRoomId,
+          `Summary of link shared by ${senderName}:\n\n${link}\n\n${summaryResult.summary}`
+        );
+        console.log(`Sent summary for link: ${link}`);
+      } else {
+        // Could not get summary
+        await sendMessage(
+          forwardingRoomId,
+          `Could not generate summary for link shared by ${senderName}:\n${link}`
+        );
+        console.log(`Failed to generate summary for link: ${link}`);
+      }
+    } catch (error) {
+      console.error(`Error processing link: ${link}`, error);
+      await sendMessage(
+        forwardingRoomId,
+        `Error processing link shared by ${senderName}:\n${link}\n\nError: ${error}`
+      );
+    }
   }
 }; 

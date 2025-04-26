@@ -10,7 +10,8 @@ const requiredEnvVars = [
   "MATRIX_ACCESS_TOKEN",
   "MATRIX_USER_ID",
   "MONITORED_ROOM_ID",
-  "FORWARDING_ROOM_ID"
+  "FORWARDING_ROOM_ID",
+  "AI_API_KEY"
 ];
 
 for (const envVar of requiredEnvVars) {
@@ -18,6 +19,15 @@ for (const envVar of requiredEnvVars) {
     console.error(`Error: ${envVar} is not set in environment variables`);
     process.exit(1);
   }
+}
+
+// Optional environment variables with defaults
+if (!process.env.AI_API_URL) {
+  console.log("AI_API_URL not set, using default OpenAI API URL");
+}
+
+if (!process.env.AI_MODEL) {
+  console.log("AI_MODEL not set, using default 'gpt-3.5-turbo' model");
 }
 
 const client = sdk.createClient({
