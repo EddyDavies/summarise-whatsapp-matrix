@@ -8,46 +8,66 @@ This document outlines the end-to-end architecture for a Matrix-based bridge to 
 
 ### 1.1 Goals
 - Detect URLs in Matrix & WhatsApp group messages
-- Persist link metadata in Postgres
-- Scrape each URL and generate concise summaries
+- Persist link metadata in Postgres (`links` table with status like 'pending', 'summarized')
+- Scrape URLs and generate concise summaries for all pending links **in batches**
+- Post batch summaries to a designated Matrix room, triggered either **periodically** or by a **keyword command**
 - Provide a responsive frontend listing links and their summaries
 
 ## 2. High-Level Components
 
 ```
 [Matrix Client & WhatsApp Bridge]
-    └── Event Listener & Link Extractor
-            └── Postgres Database
-                    └── Scraper + Summarizer Worker
-                            └── Summary Store (Postgres)
-                                    └── API Layer
-                                            └── React Frontend
-``` 
+    └── Event Listener & Link Storage Service
+            │   └── Postgres Database (`links` table)
+            │
+            └── Batch Summarization Service
+                    │   └── Scraper + Summarizer Worker
+                    │           └── Summary Store (Postgres `summaries` table)
+                    │
+                    └── Trigger Service (Time-based & Keyword-based)
+                            │
+                            └── API Layer
+                                    └── React Frontend
+```
 
 ### 2.1 Matrix Client & WhatsApp Bridge
 - Listens for new messages in group chats
-- Uses environment variables for WhatsApp credentials (`WHATSAPP_IDS`, tokens, etc.)
-- Emits parsed message events to the Link Extractor module
-- **Responsibility:** Also needs capability to send messages back to specific chats.
+- Uses environment variables for configuration (Homeserver, Token, Monitored Room ID, Forwarding Room ID, optional WhatsApp credentials)
+- Emits parsed message events to the Link Storage Service
+- **Responsibility:**
+    - Listen for a specific **trigger keyword** (e.g., "/summarize") in the monitored room to initiate manual batch summarization.
+    - Send the final batch summary message to the designated `FORWARDING_ROOM_ID`.
 
-### 2.2 Link Extractor
+### 2.2 Link Storage Service (formerly Link Extractor)
 - Applies a URL regex to incoming messages
-- Deduplicates URLs per chat and per time window
-- Enqueues new link records into Postgres
+- Deduplicates URLs within a configurable time window (or checks against existing DB entries)
+- Writes new, unique link records into the `links` table in Postgres with `status = 'pending'`. **Does not trigger immediate summarization.**
 
 ### 2.3 Postgres Database
 - **Tables**:
-  - `links` (id, url, chat_id, message_id, timestamp, status)
+  - `links` (id, url, chat_id, message_id, sender_name, timestamp, status: 'pending' | 'summarized' | 'failed')
   - `summaries` (id, link_id, summary_text, created_at)
 - Uses a connection pool (e.g. `pg` or ORM)
 
 ### 2.4 Scraper + Summarizer Worker
-- Polls for new `links` with `status = 'pending'`
-- Fetches page content (with axios/fetch)
-- Uses an AI service or lightweight text summarizer
-- Updates `summaries` table and marks `links.status = 'completed'`
-- **New Action:** After successful summarization, triggers sending the summary back to the original chat via the Matrix/WhatsApp bridge.
-- Retries on failure after a backoff
+- **Triggered** by the Batch Summarization Service (not polling directly).
+- Receives a **batch** of pending links (`links` records with `status = 'pending'`).
+- For each link in the batch:
+    - Fetches page content (with axios/fetch)
+    - Uses an AI service or lightweight text summarizer
+    - Writes the result to the `summaries` table
+    - Updates the corresponding `links` record status to `'summarized'` or `'failed'`.
+- Handles errors gracefully for individual links within a batch.
+- Returns the results (summaries and original links) for the batch to the Batch Summarization Service.
+
+### 2.4.1 Batch Summarization Service
+- **Orchestrates** the batch summarization process.
+- **Triggered** either periodically (e.g., weekly cron job/interval) or manually (by keyword detection in the Matrix Client).
+- Queries the database for all links with `status = 'pending'`.
+- Passes the batch of pending links to the Scraper + Summarizer Worker.
+- Receives the summarization results from the worker.
+- Compiles a single, formatted message containing all successful summaries from the batch.
+- Instructs the Matrix Client to send the compiled summary message to the `FORWARDING_ROOM_ID`.
 
 ### 2.5 API Layer
 - A REST or GraphQL server (e.g. Express, Hono) exposing endpoints:
@@ -63,19 +83,34 @@ This document outlines the end-to-end architecture for a Matrix-based bridge to 
 - Uses toasts for important events (e.g. fetch errors)
 - Responsive design for desktop and mobile
 
-## 3. Data Flow Sequence
-1. **Message Arrives** in Matrix/WhatsApp bridge
-2. **Extractor** identifies URL and writes new record in `links`
-3. **Worker** scrapes URL, generates summary, writes to `summaries`
-4. **Worker** triggers the bridge to send the summary message back to the original chat.
-5. **User** loads frontend → triggers API call → UI displays summary (summary is already available in chat)
+## 3. Data Flow Sequence (Batch Summarization)
+1. **Message Arrives** in Matrix bridge from a monitored room.
+2. **Link Storage Service** identifies URL(s) and writes new record(s) to `links` table with `status = 'pending'`.
+3. **Trigger Occurs:**
+    *   **Time-based:** Scheduled interval fires (e.g., weekly).
+    *   **Manual:** User sends trigger keyword (e.g., "/summarize") in the monitored room, detected by the Matrix Client.
+4. **Batch Summarization Service** is activated by the trigger.
+5. **Service** queries Postgres for all `links` where `status = 'pending'`.
+6. **Service** passes the batch of pending links to the **Scraper + Summarizer Worker**.
+7. **Worker** processes each link: scrapes, summarizes, updates `summaries` table, and updates `links.status` to 'summarized' or 'failed'.
+8. **Worker** returns results to the **Batch Summarization Service**.
+9. **Service** formats a single message containing all successful summaries.
+10. **Service** instructs the **Matrix Client** to send the compiled summary to the `FORWARDING_ROOM_ID`.
+11. **User** loads frontend → triggers API call → UI displays all links and summaries fetched from the database.
 
 ## 4. Environment Variables
 - `MATRIX_HOMESERVER_URL`
 - `MATRIX_ACCESS_TOKEN`
-- `WHATSAPP_IDS`
+- `MATRIX_USER_ID`
+- `MONITORED_ROOM_ID`
+- `FORWARDING_ROOM_ID`
 - `DATABASE_URL`
-- `AI_API_KEY` (for summarisation)
+- `AI_API_KEY`
+- `AI_API_URL` (optional)
+- `AI_MODEL` (optional)
+- `SUMMARY_INTERVAL` (optional, e.g., "weekly", "daily", or cron string - defaults to weekly)
+- `SUMMARY_TRIGGER_KEYWORD` (optional, e.g., "/summarize" - defaults to "/summarize")
+- `WHATSAPP_IDS` (optional, if WhatsApp bridge is used)
 
 ## 5. Tech Stack
 - **Language:** TypeScript
